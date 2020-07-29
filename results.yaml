@@ -1,0 +1,172 @@
+---
+#2. One of our main challenges is to accommodate huge spikes of traffic, for example -
+#thousands of users online within a couple of minutes. How would you suggest to
+#setup our AutoScalingGroup in order to serve as little 50x errors as possible when
+#scaling aggressively?
+
+#Answer2: I think a very aggresive strategy like: Scale-up if cpu > 50% for 1 minutes
+#Would be enough.
+
+#3. Define and describe a method in detail to use a Redis Cluster via ElastiCache as
+#central PHP Session storage for the AutoScalingGroup above.
+
+#Answer3: I've couldn't finish this part.
+
+# All of the parameters are described below.
+Parameters:
+    AMI-ID:
+      Type: String
+      Default: ami-0ff8a91507f77f867
+#   AppSubnet:
+#     Type: String
+#   ASGSecurityGroupList:
+#     Type: String
+    ScalingCreateTimeOut:
+      Type: String
+      Default: PT15M
+#   ScalingUpdateTimeOut:
+#     Type: String
+    ScalingMin:
+      Type: String
+      Default: 1
+    ScalingMax:
+      Type: String
+#   ScalingTermination:
+#     Type:
+    EC2ScaleUpCooldown:
+      Type: String
+      Default: 60
+    EC2ScaleDownCooldown:
+      Type: String
+      Default: 60
+    EC2ScaleUpAdjustment:
+      Type: Integer
+      Default: 1
+    EC2ScaleDownAdjustment:
+      Type: Integer
+      Default: -1
+    HealthCheckGracePeriodValue:
+      Type: Integer
+      Default: 0
+    HealthCheckTypeValue:
+      Type: String
+#      ScalingNotificationTopic:
+#      Type:
+    DesiredCapacityValue:
+      Type: String
+    MinInstancesInServiceValue:
+      Type: Integer
+      Default: 1
+#    TerminatedInstances:
+#      Type:
+#    NFSLocation:
+#      Type:
+#      Default: nfs.example.com:/data
+
+Resources: 
+  WebServerGroup: 
+  Type: "AWS::AutoScaling::AutoScalingGroup"
+  Properties:
+    HealthCheckGracePeriod:
+      Ref: HealthCheckGracePeriodValue
+    HealthCheckType:
+      Ref: HealthCheckTypeValue
+    AvailabilityZones: 
+      Fn::GetAZs: ''
+    LaunchConfigurationName: 
+      Ref: LaunchConfig
+    MinSize:
+      Ref: ScalingMin
+    MaxSize:
+      Ref: ScalingMax
+    DesiredCapacity:
+      Ref: DesiredCapacityValue
+    NotificationConfiguration: 
+      TopicARN: 
+      - Ref: ScalingNotificationTopic
+    NotificationTypes: 
+     - "autoscaling:EC2_INSTANCE_LAUNCH"
+     - "autoscaling:EC2_INSTANCE_LAUNCH_ERROR"
+     - "autoscaling:EC2_INSTANCE_TERMINATE"
+     - "autoscaling:EC2_INSTANCE_TERMINATE_ERROR"
+  
+  CreationPolicy: 
+    ResourceSignal: 
+      Timeout:
+        Ref: ScalingCreateTimeOut
+      Count: 1
+  
+  UpdatePolicy: 
+    AutoScalingRollingUpdate: 
+      MinInstancesInService:
+        Ref: MinInstancesInServiceValue
+      MaxBatchSize: 1
+      PauseTime: PT15M
+      WaitOnResourceSignals: true
+
+  LaunchConfig: 
+    Type: "AWS::AutoScaling::LaunchConfiguration"
+    Properties:
+      ImageId:
+        Ref: AMI-ID
+      SecurityGroups:
+      - Ref: ASGSecurityGroupList
+      InstanceType: t2.micro
+
+  ScaleUp: 
+    Type: "AWS::AutoScaling::ScalingPolicy"
+    Properties: 
+    AdjustmentType: ChangeInCapacity
+    AutoScalingGroupName: 
+      Ref: WebServerGroup
+    Cooldown:
+      Ref: EC2ScaleUpCooldown
+    ScalingAdjustment:
+      Ref: EC2ScaleUpAdjustment
+ 
+  ScaleDown: 
+    Type: "AWS::AutoScaling::ScalingPolicy"
+    Properties: 
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: 
+        Ref: WebServerGroup
+      Cooldown:
+        Ref: EC2ScaleDownCooldown
+      ScalingAdjustment:
+        Ref: EC2ScaleDownAdjustment
+ 
+  CPUAlarmHigh: 
+    Type: "AWS::CloudWatch::Alarm"
+    Properties: 
+      AlarmDescription: "Scale-up if CPU > 50% for 1 minutes"
+      MetricName: CPUUtilization
+      Namespace: "AWS/EC2"
+      Statistic: Average
+      Period: 30
+      EvaluationPeriods: 2
+      Threshold: 50
+      AlarmActions: 
+      - Ref: ScaleUp
+      Dimensions: 
+        - Name: AutoScalingGroupName
+          Value: 
+            Ref: WebServerGroup
+      ComparisonOperator: GreaterThanThreshold
+ 
+  CPUAlarmLow: 
+    Type: "AWS::CloudWatch::Alarm"
+    Properties: 
+      AlarmDescription: "Scale-down if CPU < 70% for 10 minutes"
+      MetricName: CPUUtilization
+      Namespace: "AWS/EC2"
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 70
+      AlarmActions: 
+      - Ref: ScaleDown
+      Dimensions: 
+      - Name: AutoScalingGroupName
+        Value: 
+          Ref: WebServerGroup
+      ComparisonOperator: LessThanThreshold
